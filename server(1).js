@@ -7,17 +7,16 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware - NO DELAYS, INSTANT RESPONSE
 app.use(cors());
-app.use(bodyParser.json({ limit: '10mb' })); // Increase limit for faster processing
+app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 
 // Disable delays
-app.set('etag', false); // Disable ETag generation for faster responses
+app.set('etag', false);
 
 // In-memory storage for pet findings
-// Structure: { jobId, placeId, pets: [name1, name2], rates: {name1: rate1, name2: rate2}, timestamp }
 let petFindings = [];
 
-// Maximum number of findings to keep in memory (prevent memory overflow)
+// Maximum number of findings to keep in memory
 const MAX_FINDINGS = 100;
 
 // Clean up old findings (older than 15 seconds) - ULTRA FAST CLEANUP
@@ -29,14 +28,10 @@ function cleanupOldFindings() {
         return (now - finding.timestamp) < FINDING_EXPIRY_MS;
     });
     
-    // Also limit to MAX_FINDINGS (keep newest)
     if (petFindings.length > MAX_FINDINGS) {
         petFindings = petFindings.slice(-MAX_FINDINGS);
     }
 }
-
-// REMOVED: No automatic cleanup intervals - only cleanup on-demand for speed
-// Cleanup happens during GET requests instead
 
 // ==========================================
 // API ENDPOINTS
@@ -56,12 +51,11 @@ app.get('/', (req, res) => {
     });
 });
 
-// Submit new finding from Scanner (Script A)
+// Submit new finding from Scanner
 app.post('/api/submit', (req, res) => {
     try {
         const { jobId, placeId, pets, rates } = req.body;
         
-        // Validate required fields
         if (!jobId || !placeId) {
             return res.status(400).json({
                 success: false,
@@ -76,7 +70,6 @@ app.post('/api/submit', (req, res) => {
             });
         }
 
-        // Check for duplicate (same jobId + placeId)
         const existingIndex = petFindings.findIndex(f => 
             f.jobId === jobId && f.placeId === placeId
         );
@@ -85,27 +78,21 @@ app.post('/api/submit', (req, res) => {
             jobId,
             placeId,
             pets,
-            rates: rates || {}, // rates is optional, defaults to empty object
+            rates: rates || {},
             timestamp: Date.now()
         };
 
         if (existingIndex !== -1) {
-            // Update existing finding
             petFindings[existingIndex] = finding;
             console.log(`📝 Updated finding: ${pets.join(', ')} in server ${jobId.substring(0, 8)}...`);
         } else {
-            // Add new finding
             petFindings.push(finding);
             console.log(`✨ New finding: ${pets.join(', ')} in server ${jobId.substring(0, 8)}...`);
             
-            // Log rates if provided
             if (rates && Object.keys(rates).length > 0) {
                 console.log(`   Rates:`, rates);
             }
         }
-
-        // REMOVED: No cleanup on submit for instant response
-        // cleanupOldFindings();
 
         res.json({
             success: true,
@@ -122,13 +109,11 @@ app.post('/api/submit', (req, res) => {
     }
 });
 
-// Get all findings for Notifier (Script B)
+// Get all findings for Notifier
 app.get('/api/pets', (req, res) => {
     try {
-        // Cleanup old findings (15 seconds expiry)
         cleanupOldFindings();
 
-        // Sort by newest first
         const sortedFindings = [...petFindings].sort((a, b) => b.timestamp - a.timestamp);
 
         res.json({
@@ -152,13 +137,11 @@ app.get('/api/stats', (req, res) => {
     try {
         cleanupOldFindings();
 
-        // Count unique pets
         const uniquePets = new Set();
         petFindings.forEach(finding => {
             finding.pets.forEach(pet => uniquePets.add(pet));
         });
 
-        // Get pet frequency
         const petFrequency = {};
         petFindings.forEach(finding => {
             finding.pets.forEach(pet => {
@@ -166,7 +149,6 @@ app.get('/api/stats', (req, res) => {
             });
         });
 
-        // Sort by frequency
         const topPets = Object.entries(petFrequency)
             .sort((a, b) => b[1] - a[1])
             .slice(0, 10)
@@ -194,7 +176,7 @@ app.get('/api/stats', (req, res) => {
     }
 });
 
-// Clear all findings (useful for testing)
+// Clear all findings
 app.post('/api/clear', (req, res) => {
     const count = petFindings.length;
     petFindings = [];
@@ -235,12 +217,4 @@ app.listen(PORT, () => {
     console.log('');
     console.log('🚀 Ready to receive scan data!');
     console.log('');
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('\n🛑 SIGTERM signal received: closing HTTP server');
-    server.close(() => {
-        console.log('✅ HTTP server closed');
-    });
 });
